@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NYC Advanced Navigator</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css">
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #ecf0f3;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        #container {
+            max-width: 800px;
+            margin: 20px;
+            padding: 20px;
+            background-color: #fff;
+            border-radius: 10px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #34495e;
+            text-align: center;
+            margin-bottom: 20px;
+            font-size: 2em;
+        }
+        #map {
+            height: 600px;
+            width: 100%;
+            margin-bottom: 20px;
+            border-radius: 10px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        .leaflet-control-attribution {
+            display: none;
+        }
+        .leaflet-popup-content-wrapper, .leaflet-popup-tip {
+            background: #fff;
+            color: #000;
+        }
+        #controls {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        input, button {
+            width: 80%;
+            max-width: 300px;
+            padding: 10px;
+            margin: 5px;
+            border: none;
+            border-radius: 5px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            font-size: 1em;
+        }
+        button {
+            background-color: #3498db;
+            color: #fff;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+        button:hover {
+            background-color: #2980b9;
+        }
+        #obstacleList {
+            list-style-type: none;
+            padding: 0;
+            width: 100%;
+            margin: 0;
+        }
+        #obstacleList li {
+            background-color: #fff;
+            padding: 10px;
+            margin: 5px 0;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            font-size: 1em;
+        }
+        .nav-buttons {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body onload="initMap()">
+<div id="container">
+    <h1>Navigate Your City</h1>
+    <div id="map"></div>
+    <div id="controls">
+        <form id="userNameForm" onsubmit="setUserName(event)">
+            <input type="text" id="userName" placeholder="Enter your name" required>
+            <button type="submit">Set Name</button>
+        </form>
+        <form id="obstacleForm" onsubmit="addObstacleFromForm(event)" style="display:none;">
+            <input type="text" id="obstacleName" placeholder="Obstacle Name" required>
+            <button type="button" onclick="enableObstacleClick()">Set Obstacle Location</button>
+            <button type="submit">Add Obstacle</button>
+        </form>
+        <button id="setCurrentLocationButton" onclick="setCurrentLocationAsObstacle()" style="display:none;">Set Current Location as Obstacle</button>
+        <button id="clearObstaclesButton" onclick="clearObstacles()" style="display:none;">Clear Obstacles</button> <!-- Clear Obstacles Button -->
+        <ul id="obstacleList"></ul>
+        <!-- Buttons to navigate between different pages -->
+        <div class="nav-buttons">
+            <button onclick="openDestinationPage()">Set Destination</button>
+            <button onclick="openNavigationPage()">Open Navigation</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    let map, userMarker, userCircle;
+    let obstacleLayer = L.layerGroup();
+    let obstacles = JSON.parse(localStorage.getItem('obstacles')) || [];
+    let currentClickLatLng = null;
+    let allowObstacleClick = false;
+    let userName = '';
+    let proximityAlertTriggered = false;
+
+    function initMap() {
+        map = L.map('map').setView([40.712776, -74.005974], 12);
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+
+        obstacleLayer.addTo(map);
+
+        map.on('click', function(e) {
+            if (allowObstacleClick) {
+                currentClickLatLng = e.latlng;
+                alert(`Clicked at ${e.latlng.lat}, ${e.latlng.lng}. Click 'Add Obstacle' to confirm.`);
+                allowObstacleClick = false;
+            }
+        });
+
+        if (navigator.geolocation) {
+            navigator.geolocation.watchPosition(updateLocation, locationError, {
+                enableHighAccuracy: true,
+                maximumAge: 0,
+                timeout: 5000
+            });
+        } else {
+            alert("Geolocation is not supported by this browser.");
+        }
+
+        obstacles.forEach(obstacle => {
+            L.circle(obstacle.latlng, {
+                color: 'red',
+                fillColor: '#f03',
+                fillOpacity: 0.5,
+                radius: 2.13 // 7 feet in meters
+            }).addTo(obstacleLayer).bindPopup(obstacle.name);
+        });
+
+        updateObstacleList();
+    }
+
+    function updateLocation(position) {
+        const latitude = position.coords.latitude;
+        const longitude = position.coords.longitude;
+
+        if (userMarker) {
+            userMarker.setLatLng([latitude, longitude]);
+            userCircle.setLatLng([latitude, longitude]);
+        } else {
+            // Replace with a simple blue dot for user location
+            userMarker = L.circleMarker([latitude, longitude], {
+                radius: 5,
+                color: '#1e90ff',
+                fillColor: '#1e90ff',
+                fillOpacity: 1
+            }).addTo(map);
+
+            userCircle = L.circle([latitude, longitude], {
+                color: '#1e90ff',
+                fillColor: '#1e90ff',
+                fillOpacity: 0.2,
+                radius: 2.13 // 7 feet in meters
+            }).addTo(map);
+        }
+
+        checkProximityToObstacles(latitude, longitude);
+    }
+
+    function checkProximityToObstacles(lat, lng) {
+        obstacles.forEach(obstacle => {
+            const distance = map.distance([lat, lng], obstacle.latlng);
+            if (distance <= 2.13 && !proximityAlertTriggered) { // 7 feet in meters
+                proximityAlertTriggered = true;
+                alert(`Warning: You are within 7 feet of the obstacle "${obstacle.name}"!`);
+                setTimeout(() => proximityAlertTriggered = false, 5000); // Prevent immediate repeat alerts
+            }
+        });
+    }
+
+    function locationError(error) {
+        console.error(`Error getting location: ${error.message}`);
+    }
+
+    function addObstacleFromForm(event) {
+        event.preventDefault();
+        const name = document.getElementById('obstacleName').value;
+        if (currentClickLatLng) {
+            addObstacle(currentClickLatLng, name);
+            currentClickLatLng = null;
+            document.getElementById('obstacleName').value = '';
+        } else {
+            alert("Please click on the map to set the obstacle location.");
+        }
+    }
+
+    function enableObstacleClick() {
+        allowObstacleClick = true;
+        alert("Click on the map to set the obstacle location.");
+    }
+
+    function setCurrentLocationAsObstacle() {
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(position => {
+                const latitude = position.coords.latitude;
+                const longitude = position.coords.longitude;
+                const name = prompt('Enter the name for the current location obstacle:');
+
+                if (name) {
+                    addObstacle({ lat: latitude, lng: longitude }, name);
+                }
+            }, locationError, {
+                enableHighAccuracy: true,
+                maximumAge: 0,
+                timeout: 5000
+            });
+        } else {
+            alert("Geolocation is not supported by this browser.");
+        }
+    }
+
+    function addObstacle(latlng, name) {
+        const obstacle = L.circle(latlng, {
+            color: 'red',
+            fillColor: '#f03',
+            fillOpacity: 0.5,
+            radius: 2.13 // 7 feet in meters
+        }).addTo(obstacleLayer);
+
+        obstacles.push({ latlng, name });
+        localStorage.setItem('obstacles', JSON.stringify(obstacles));
+        updateObstacleList();
+    }
+
+    function updateObstacleList() {
+        const obstacleList = document.getElementById('obstacleList');
+        obstacleList.innerHTML = '';
+
+        obstacles.forEach(obstacle => {
+            const listItem = document.createElement('li');
+            listItem.textContent = `${obstacle.name} - (${obstacle.latlng.lat.toFixed(5)}, ${obstacle.latlng.lng.toFixed(5)})`;
+            obstacleList.appendChild(listItem);
+        });
+    }
+
+    // Function to clear all obstacles from the map and localStorage
+    function clearObstacles() {
+        obstacleLayer.clearLayers();  // Clear all obstacle markers from the map
+        obstacles = [];  // Clear obstacles array
+        localStorage.removeItem('obstacles');  // Remove obstacles from localStorage
+        updateObstacleList();  // Update the obstacle list UI
+        alert('All obstacles cleared!');
+    }
+
+    function setUserName(event) {
+        event.preventDefault();
+        userName = document.getElementById('userName').value;
+        document.getElementById('userNameForm').style.display = 'none';
+        document.getElementById('obstacleForm').style.display = 'flex';
+        document.getElementById('setCurrentLocationButton').style.display = 'block';
+        document.getElementById('clearObstaclesButton').style.display = 'block'; // Show the "Clear Obstacles" button
+    }
+
+    function openDestinationPage() {
+        window.location.href = 'destination.html';
+    }
+
+    function openNavigationPage() {
+        window.location.href = 'navigation.html';
+    }
+</script>
+</body>
+</html>

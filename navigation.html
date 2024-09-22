@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Navigation</title>
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css">
+    <!-- Leaflet Routing Machine CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.css">
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            flex-direction: column;
+        }
+        #map {
+            height: 80%;
+            width: 100%;
+            margin-bottom: 20px;
+        }
+        .nav-buttons {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        button {
+            background-color: #3498db;
+            color: #fff;
+            padding: 10px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+        button:hover {
+            background-color: #2980b9;
+        }
+    </style>
+</head>
+<body>
+<div id="map"></div>
+
+<!-- Navigation buttons -->
+<div class="nav-buttons">
+    <button onclick="goToIndex()">Go to Index</button>
+    <button onclick="goToDestination()">Set Destination</button>
+    <button onclick="openNavigationPage()">Open Navigation</button>
+</div>
+
+<!-- Leaflet JS -->
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<!-- Leaflet Routing Machine JS -->
+<script src="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.min.js"></script>
+
+<script>
+    let map, routingControl, userMarker;
+    let startCoords = JSON.parse(localStorage.getItem('startLocation'));
+    let destinationCoords = JSON.parse(localStorage.getItem('destination'));
+    let selectedMode = localStorage.getItem('navigationMode') || 'driving';
+
+    function initializeMap() {
+        map = L.map('map').setView([40.712776, -74.005974], 12);
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+
+        if (!startCoords || !destinationCoords) {
+            alert("Please set both starting location and destination.");
+            window.location.href = 'destination.html';
+            return;
+        }
+
+        // Start navigation with live location tracking
+        startNavigation();
+
+        // Watch the user's position
+        if (navigator.geolocation) {
+            navigator.geolocation.watchPosition(updateLocation, locationError, {
+                enableHighAccuracy: true,
+                maximumAge: 1000, // Update location every second
+                timeout: 5000
+            });
+        } else {
+            alert("Geolocation is not supported by this browser.");
+        }
+    }
+
+    function updateLocation(position) {
+        const latitude = position.coords.latitude;
+        const longitude = position.coords.longitude;
+
+        // Initialize or update user marker
+        if (userMarker) {
+            userMarker.setLatLng([latitude, longitude]);
+        } else {
+            userMarker = L.marker([latitude, longitude], {icon: L.icon({
+                iconUrl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/07/Location_dot_blue.svg/1024px-Location_dot_blue.svg.png',
+                iconSize: [20, 20],
+                iconAnchor: [10, 10]
+            })}).addTo(map);
+        }
+
+        // Update route dynamically with live position
+        if (routingControl) {
+            routingControl.setWaypoints([
+                L.latLng(latitude, longitude),
+                L.latLng(destinationCoords[1], destinationCoords[0])
+            ]);
+        }
+    }
+
+    function startNavigation() {
+        routingControl = L.Routing.control({
+            waypoints: [
+                L.latLng(startCoords[1], startCoords[0]),
+                L.latLng(destinationCoords[1], destinationCoords[0])
+            ],
+            routeWhileDragging: true,
+            router: L.Routing.osrmv1({
+                serviceUrl: 'https://router.project-osrm.org/route/v1'
+            }),
+            profile: selectedMode,
+            createMarker: function() { return null; }
+        }).addTo(map);
+    }
+
+    function locationError(error) {
+        console.error(`Error getting location: ${error.message}`);
+    }
+
+    function goToIndex() {
+        window.location.href = 'index.html';
+    }
+
+    function openNavigationPage() {
+        window.location.href = 'navigation.html';
+    }
+
+    function goToDestination() {
+        window.location.href = 'destination.html';
+    }
+
+    // Initialize the map on load
+    initializeMap();
+</script>
+</body>
+</html>
